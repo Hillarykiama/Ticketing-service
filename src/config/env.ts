@@ -11,6 +11,12 @@ const envSchema = z.object({
 
   JWT_SECRET: z.string().min(1, 'JWT_SECRET is required'),
   JWT_EXPIRES_IN: z.string().default('1h'),
+
+  DARAJA_CONSUMER_KEY: z.string().min(1, 'DARAJA_CONSUMER_KEY is required'),
+  DARAJA_CONSUMER_SECRET: z.string().min(1, 'DARAJA_CONSUMER_SECRET is required'),
+  DARAJA_SHORTCODE: z.string().min(1),
+  DARAJA_PASSKEY: z.string().min(1),
+  DARAJA_CALLBACK_URL: z.string().url('DARAJA_CALLBACK_URL must be a valid URL'),
 });
 
 const parsed = envSchema.safeParse(process.env);
