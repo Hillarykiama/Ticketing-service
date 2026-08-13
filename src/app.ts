@@ -4,6 +4,7 @@ import { env } from './config/env';
 import { checkDbConnection } from './config/db';
 import { checkRedisConnection } from './config/redis';
 import authRoutes from './routes/auth.routes';
+import ordersRoutes from './routes/orders.routes';
 
 const app = express();
 
@@ -21,6 +22,7 @@ app.get('/health', async (_req, res) => {
 });
 
 app.use('/auth', authRoutes);
+app.use('/', ordersRoutes);
 
 app.listen(Number(env.PORT), () => {
   console.log(`ticketing-service listening on port ${env.PORT}`);
