@@ -7,6 +7,7 @@ import authRoutes from './routes/auth.routes';
 import ordersRoutes from './routes/orders.routes';
 import webhooksRoutes from './routes/webhooks.routes';
 import paymentsRoutes from './routes/payments.routes';
+import eventsRoutes from './routes/events.routes';
 
 const app = express();
 
@@ -27,6 +28,7 @@ app.use('/auth', authRoutes);
 app.use('/', ordersRoutes);
 app.use('/webhooks', webhooksRoutes);
 app.use('/', paymentsRoutes);
+app.use('/', eventsRoutes);
 
 app.listen(Number(env.PORT), () => {
   console.log(`ticketing-service listening on port ${env.PORT}`);

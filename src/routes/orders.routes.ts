@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import { z } from 'zod';
 import { requireAuth, AuthedRequest } from '../middleware/auth';
+import { rateLimit } from '../middleware/rateLimit';
 import { reserveTicket, NotFoundError, ConflictError } from '../services/inventory.service';
 
 const router = Router();
@@ -10,7 +11,9 @@ const reserveSchema = z.object({
   quantity: z.number().int().positive(),
 });
 
-router.post('/orders', requireAuth, async (req: AuthedRequest, res) => {
+// Max 5 reservation attempts per IP per minute — generous enough for real
+// users retrying a failed purchase, tight enough to blunt bot sniping
+router.post('/orders', rateLimit(60, 5), requireAuth, async (req: AuthedRequest, res) => {
   const parsed = reserveSchema.safeParse(req.body);
   if (!parsed.success) {
     return res.status(400).json({ error: parsed.error.flatten().fieldErrors });

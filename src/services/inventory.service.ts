@@ -1,4 +1,5 @@
 import { pool } from '../config/db';
+import { invalidateEvent } from './cache.service';
 
 export class NotFoundError extends Error {}
 export class ConflictError extends Error {}
@@ -10,10 +11,9 @@ export async function reserveTicket(ticketTypeId: string, userId: string, quanti
   try {
     await client.query('BEGIN');
 
-    // Lock the row so a concurrent request for the same ticket type
-    // waits instead of racing on the same available_quantity value
     const { rows } = await client.query(
-      `SELECT available_quantity FROM ticket_types WHERE id = $1 FOR UPDATE`,
+      `SELECT tt.available_quantity, tt.event_id
+       FROM ticket_types tt WHERE tt.id = $1 FOR UPDATE`,
       [ticketTypeId]
     );
 
@@ -38,6 +38,11 @@ export async function reserveTicket(ticketTypeId: string, userId: string, quanti
     );
 
     await client.query('COMMIT');
+
+    // Invalidate outside the transaction — cache correctness doesn't need
+    // to be atomic with the DB write, just eventually consistent within ms
+    await invalidateEvent(rows[0].event_id);
+
     return orderRows[0];
   } catch (err) {
     await client.query('ROLLBACK');
