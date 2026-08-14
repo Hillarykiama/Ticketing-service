@@ -1,5 +1,6 @@
 import { Router } from 'express';
 import { pool } from '../config/db';
+import { ticketQueue } from '../queues/ticket.queue';
 
 const router = Router();
 
@@ -29,13 +30,15 @@ router.post('/mpesa', async (req, res) => {
   console.log('M-Pesa callback received:', { CheckoutRequestID, ResultCode, ResultDesc });
 
   const client = await pool.connect();
+  let paidOrderId: string | null = null;
+
   try {
     await client.query('BEGIN');
 
     const newStatus = ResultCode === 0 ? 'paid' : 'cancelled';
 
-    const { rowCount } = await client.query(
-      `UPDATE orders SET status = $1 WHERE payment_ref = $2 AND status = 'pending_payment'`,
+    const { rows, rowCount } = await client.query(
+      `UPDATE orders SET status = $1 WHERE payment_ref = $2 AND status = 'pending_payment' RETURNING id`,
       [newStatus, CheckoutRequestID]
     );
 
@@ -43,6 +46,9 @@ router.post('/mpesa', async (req, res) => {
       console.warn('No matching pending order found for', CheckoutRequestID);
     } else {
       console.log(`Order for ${CheckoutRequestID} marked as ${newStatus}`);
+      if (newStatus === 'paid') {
+        paidOrderId = rows[0].id;
+      }
     }
 
     await client.query(
@@ -56,6 +62,14 @@ router.post('/mpesa', async (req, res) => {
     throw err;
   } finally {
     client.release();
+  }
+
+  // Enqueue ticket generation OUTSIDE the DB transaction — if this fails,
+  // the order is still correctly marked paid; the reconciliation job (built later)
+  // will catch and retry any paid order with no ticket generated.
+  if (paidOrderId) {
+    await ticketQueue.add('generate', { orderId: paidOrderId });
+    console.log('Enqueued ticket generation for order', paidOrderId);
   }
 
   res.status(200).json({ ResultCode: 0, ResultDesc: 'Accepted' });

@@ -10,6 +10,12 @@ redis.on('error', (err) => {
   console.error('Redis client error:', err);
 });
 
+// BullMQ requires maxRetriesPerRequest: null on its dedicated connection —
+// it manages its own retry/reconnect behavior internally
+export const redisConnection = new IORedis(env.REDIS_URL, {
+  maxRetriesPerRequest: null,
+});
+
 export async function checkRedisConnection(): Promise<boolean> {
   try {
     const pong = await redis.ping();
