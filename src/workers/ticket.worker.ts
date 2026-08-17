@@ -3,6 +3,7 @@ import { randomUUID } from 'crypto';
 import { redisConnection } from '../config/redis';
 import { pool } from '../config/db';
 import { TicketGenerationJob } from '../queues/ticket.queue';
+import { reconcileStuckOrders, releaseExpiredReservations } from '../services/reconciliation.service';
 
 const worker = new Worker<TicketGenerationJob>(
   'ticket-generation',
@@ -10,8 +11,6 @@ const worker = new Worker<TicketGenerationJob>(
     const { orderId } = job.data;
     console.log(`[worker] Processing job ${job.id} for order ${orderId} (attempt ${job.attemptsMade + 1})`);
 
-    // Idempotency guard: if a ticket already exists for this order
-    // (e.g. a retried job after a partial earlier success), don't create a duplicate
     const existing = await pool.query(`SELECT id FROM tickets WHERE order_id = $1`, [orderId]);
     if (existing.rows.length > 0) {
       console.log(`[worker] Ticket already exists for order ${orderId}, skipping`);
@@ -39,3 +38,17 @@ worker.on('failed', (job, err) => {
 });
 
 console.log('Ticket generation worker started, listening for jobs...');
+
+const RECONCILIATION_INTERVAL_MS = 60_000; // every 60 seconds
+
+setInterval(async () => {
+  try {
+    const stuckCount = await reconcileStuckOrders();
+    const expiredCount = await releaseExpiredReservations();
+    if (stuckCount > 0 || expiredCount > 0) {
+      console.log(`[reconciliation] Fixed ${stuckCount} stuck orders, released ${expiredCount} expired reservations`);
+    }
+  } catch (err) {
+    console.error('[reconciliation] Run failed:', err);
+  }
+}, RECONCILIATION_INTERVAL_MS);
