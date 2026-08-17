@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import { pool } from '../config/db';
 import { ticketQueue } from '../queues/ticket.queue';
+import { logger } from '../utils/logger';
 
 const router = Router();
 
@@ -13,6 +14,7 @@ router.post('/mpesa', async (req, res) => {
   }
 
   const { CheckoutRequestID, ResultCode, ResultDesc } = stkCallback;
+  const log = logger.child({ checkoutRequestId: CheckoutRequestID });
 
   const inserted = await pool.query(
     `INSERT INTO webhook_events (provider, event_id, payload)
@@ -23,11 +25,11 @@ router.post('/mpesa', async (req, res) => {
   );
 
   if (inserted.rowCount === 0) {
-    console.log('Duplicate webhook received, ignoring:', CheckoutRequestID);
+    log.info('Duplicate webhook received, ignoring');
     return res.status(200).json({ ResultCode: 0, ResultDesc: 'Already processed' });
   }
 
-  console.log('M-Pesa callback received:', { CheckoutRequestID, ResultCode, ResultDesc });
+  log.info({ resultCode: ResultCode, resultDesc: ResultDesc }, 'M-Pesa callback received');
 
   const client = await pool.connect();
   let paidOrderId: string | null = null;
@@ -43,9 +45,9 @@ router.post('/mpesa', async (req, res) => {
     );
 
     if (rowCount === 0) {
-      console.warn('No matching pending order found for', CheckoutRequestID);
+      log.warn('No matching pending order found for this callback');
     } else {
-      console.log(`Order for ${CheckoutRequestID} marked as ${newStatus}`);
+      log.info({ orderId: rows[0].id, newStatus }, 'Order status updated');
       if (newStatus === 'paid') {
         paidOrderId = rows[0].id;
       }
@@ -59,17 +61,15 @@ router.post('/mpesa', async (req, res) => {
     await client.query('COMMIT');
   } catch (err) {
     await client.query('ROLLBACK');
+    log.error({ err }, 'Failed to process webhook, rolled back');
     throw err;
   } finally {
     client.release();
   }
 
-  // Enqueue ticket generation OUTSIDE the DB transaction — if this fails,
-  // the order is still correctly marked paid; the reconciliation job (built later)
-  // will catch and retry any paid order with no ticket generated.
   if (paidOrderId) {
     await ticketQueue.add('generate', { orderId: paidOrderId });
-    console.log('Enqueued ticket generation for order', paidOrderId);
+    log.info({ orderId: paidOrderId }, 'Enqueued ticket generation');
   }
 
   res.status(200).json({ ResultCode: 0, ResultDesc: 'Accepted' });
