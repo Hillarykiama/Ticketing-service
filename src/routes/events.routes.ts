@@ -15,11 +15,18 @@ router.get('/events/:id', async (req, res) => {
   const { rows } = await pool.query(
     `SELECT e.id, e.name, e.starts_at, e.status,
             json_agg(json_build_object(
-              'id', tt.id, 'name', tt.name, 'price_cents', tt.price_cents,
-              'available_quantity', tt.available_quantity
+              'id', tt.id,
+              'name', tt.name,
+              'price_cents', tt.price_cents,
+              'available_quantity', shard_totals.total_available
             )) AS ticket_types
      FROM events e
      LEFT JOIN ticket_types tt ON tt.event_id = e.id
+     LEFT JOIN (
+       SELECT ticket_type_id, SUM(available_quantity) AS total_available
+       FROM ticket_type_shards
+       GROUP BY ticket_type_id
+     ) shard_totals ON shard_totals.ticket_type_id = tt.id
      WHERE e.id = $1
      GROUP BY e.id`,
     [id]

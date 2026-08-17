@@ -8,7 +8,8 @@ payments, check-in).
 
 ## Status
 
-Complete — all core patterns implemented and tested.
+Complete — all core patterns implemented and tested, plus a sharded-inventory
+scaling extension for high-demand flash-sale scenarios.
 
 - [x] Project setup (TypeScript, Express, Postgres, Redis, env validation, health check)
 - [x] DB schema + migrations (events, ticket_types, orders, tickets, webhook_events, users)
@@ -20,6 +21,7 @@ Complete — all core patterns implemented and tested.
 - [x] Logging + monitoring
 - [x] Reconciliation job (automated, scheduled)
 - [x] Tests (concurrency safety, webhook idempotency)
+- [x] Inventory sharding for scale (flash-sale concurrency)
 
 ## Stack
 
@@ -89,3 +91,13 @@ tests/ vitest test suite
   missing a ticket.
 - **Cache correctness over hit rate**: event/availability caching uses a short
   TTL (30s) plus explicit invalidation on every inventory-changing write.
+- **Inventory sharding for flash-sale scale**: ticket inventory is split across
+  N `ticket_type_shards` rows per ticket type instead of one counter. A
+  reservation locks and decrements exactly one randomly-chosen shard, so
+  contention is spread across shards instead of serializing on a single hot
+  row. A low-demand event uses 1 shard (behaviorally identical to a flat
+  counter); a high-demand event uses many. Verified under 40 concurrent
+  requests against 20 tickets across 10 shards in `tests/sharding.test.ts`.
+  At true production scale, this pairs with a virtual waiting room (not
+  implemented here) that admits buyers in controlled batches rather than
+  letting all traffic hit the reservation endpoint at once.
